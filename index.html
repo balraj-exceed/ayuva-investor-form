@@ -1038,65 +1038,80 @@
       submittedAt: new Date().toISOString()
     };
 
-    // Compress passport image
+    // Step 1: Send text data via GET (always works)
+    const params = new URLSearchParams(textData).toString();
+    const script1 = document.createElement('script');
+    script1.src = SCRIPT_URL + '?' + params;
+    document.body.appendChild(script1);
+
+    // Step 2: Read file and send passport
     const reader = new FileReader();
     reader.onload = function(e) {
-      const img = new Image();
-      img.onload = function() {
-        const maxW = 800;
-        let w = img.width, h = img.height;
-        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
+      const base64Full = e.target.result;
+      const base64Data = base64Full.split(',')[1];
+      const isImage = file.type.startsWith('image/');
 
-        // Step 1: Send text data via GET (reliable)
-        const params = new URLSearchParams(textData).toString();
-        const script1 = document.createElement('script');
-        script1.src = SCRIPT_URL + '?' + params;
-        document.body.appendChild(script1);
+      function sendPassport(passportBase64) {
+        const passportPayload = JSON.stringify({
+          type: 'passport',
+          fullname: textData.fullname,
+          passportName: file.name,
+          passportData: passportBase64
+        });
 
-        // Step 2: Send passport via POST (after text data sent)
+        const iframe = document.createElement('iframe');
+        iframe.name = 'passportFrame_' + Date.now();
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = SCRIPT_URL;
+        form.target = iframe.name;
+        form.enctype = 'multipart/form-data';
+
+        const input = document.createElement('textarea');
+        input.name = 'passportPayload';
+        input.value = passportPayload;
+        input.style.display = 'none';
+        form.appendChild(input);
+
+        document.body.appendChild(form);
+        form.submit();
+
         setTimeout(() => {
-          const passportPayload = JSON.stringify({
-            type: 'passport',
-            fullname: textData.fullname,
-            passportName: file.name,
-            passportData: compressedBase64
-          });
+          document.getElementById('investorForm').style.display = 'none';
+          document.querySelector('.progress-bar').style.display = 'none';
+          document.getElementById('successScreen').style.display = 'block';
+        }, 3000);
+      }
 
-          // Use hidden iframe with form POST for passport
-          const iframe = document.createElement('iframe');
-          iframe.name = 'passportFrame_' + Date.now();
-          iframe.style.display = 'none';
-          document.body.appendChild(iframe);
-
-          const form = document.createElement('form');
-          form.method = 'POST';
-          form.action = SCRIPT_URL;
-          form.target = iframe.name;
-          form.enctype = 'multipart/form-data';
-
-          const input = document.createElement('textarea');
-          input.name = 'passportPayload';
-          input.value = passportPayload;
-          input.style.display = 'none';
-          form.appendChild(input);
-
-          document.body.appendChild(form);
-          form.submit();
-
-          // Show success
-          setTimeout(() => {
-            document.getElementById('investorForm').style.display = 'none';
-            document.querySelector('.progress-bar').style.display = 'none';
-            document.getElementById('successScreen').style.display = 'block';
-          }, 3000);
-        }, 2000);
-      };
-      img.src = e.target.result;
+      if (isImage) {
+        // Compress image before sending
+        const img = new Image();
+        img.onload = function() {
+          const maxW = 800;
+          let w = img.width, h = img.height;
+          if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          const compressed = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
+          sendPassport(compressed);
+        };
+        img.src = base64Full;
+      } else {
+        // PDF or other file — send as-is (if under 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+          alert('ファイルサイズが大きすぎます。5MB以下のファイルをアップロードしてください。');
+          submitBtn.textContent = '送信する ✓';
+          submitBtn.disabled = false;
+          submitBtn.style.opacity = '1';
+          return;
+        }
+        sendPassport(base64Data);
+      }
     };
     reader.readAsDataURL(file);
   }
